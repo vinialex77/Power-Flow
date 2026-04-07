@@ -5,10 +5,10 @@ import pandas as pd
 import os
 
 try:
-    from PowerFlow.ybus import build_ybus
-    from PowerFlow.newton_raphson import newton_raphson
+    from ybus import build_ybus
+    from newton_raphson import newton_raphson
 except ImportError:
-    st.error("⚠️ Pasta 'PowerFlow' não encontrada. Verifique os arquivos.")
+    st.error("⚠️ Os arquivos do motor matemático (ybus.py, newton_raphson.py, etc) precisam estar na mesma pasta que este arquivo da interface.")
     st.stop()
 
 # Funcionalidades Auxiliares para formatação
