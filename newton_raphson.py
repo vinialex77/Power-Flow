@@ -1,6 +1,6 @@
 import numpy as np
-from PowerFlow.mismatch import calc_power
-from PowerFlow.jacobian import build_jacobian
+from mismatch import calc_power
+from jacobian import build_jacobian
 
 def newton_raphson(buses, Ybus, tol=1e-6, max_iter=20):
     n = len(buses)
