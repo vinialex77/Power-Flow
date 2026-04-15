@@ -204,13 +204,22 @@ html_canvas = """
 </html>
 """
 
-# Renderização e Ponte
-componente_canvas = components.declare_component("canvas_sep", path=os.path.abspath("canvas_sep_component"))
-if not os.path.exists("canvas_sep_component"):
-    os.makedirs("canvas_sep_component")
-    with open("canvas_sep_component/index.html", "w", encoding="utf-8") as f: f.write(html_canvas)
+# ==========================================
+# RENDERIZAÇÃO E PONTE COM O CANVAS
+# ==========================================
+component_dir = os.path.abspath("canvas_sep_component")
 
-dados = componente_canvas(key="meu_canvas")
+# 1. PRIMEIRO: Cria a pasta se ela não existir
+if not os.path.exists(component_dir):
+    os.makedirs(component_dir, exist_ok=True)
+
+# 2. SEGUNDO: Escreve o HTML atualizado lá dentro
+with open(os.path.join(component_dir, "index.html"), "w", encoding="utf-8") as f:
+    f.write(html_canvas)
+
+# 3. TERCEIRO: Agora sim, com a pasta existente, declaramos o componente
+componente_canvas = components.declare_component("canvas_sep", path=component_dir)
+dados_do_canvas = componente_canvas(key="meu_canvas")
 
 if dados:
     st.markdown("---")
