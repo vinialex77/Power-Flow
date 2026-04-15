@@ -5,7 +5,6 @@ import pandas as pd
 import os
 
 try:
-    # IMPORTS CORRIGIDOS PARA ARQUIVOS SOLTOS
     from ybus import build_ybus
     from newton_raphson import newton_raphson
 except ImportError:
@@ -24,7 +23,6 @@ st.set_page_config(page_title="Simulador SEP Visual", layout="wide")
 
 with st.sidebar:
     st.header("⚙️ Parâmetros do Cálculo")
-    st.markdown("Defina os critérios de parada do Newton-Raphson:")
     tol_input = st.number_input("Tolerância (Erro Máximo)", value=0.001, format="%f", step=0.0001)
     max_iter_input = st.number_input("Máximo de Iterações", value=20, min_value=1, step=1)
     st.markdown("---")
@@ -90,18 +88,12 @@ html_canvas = """
             if (!val || val === 0) return "";
             const isCap = val > 0;
             const color = isCap ? "#1976d2" : "#d32f2f";
-            
             let symbol = isCap 
                 ? `<path d="M -10 15 L 10 15" stroke="${color}" stroke-width="3"/><path d="M -10 20 L 10 20" stroke="${color}" stroke-width="3"/>`
                 : `<path d="M 0 10 Q -8 14 0 18 Q 8 22 0 26 Q -8 30 0 34" fill="none" stroke="${color}" stroke-width="2.5"/>`;
-
-            const yEnd = isCap ? 20 : 34;
-            const yTerra = isCap ? 35 : 50;
-
+            const yEnd = isCap ? 20 : 34; const yTerra = isCap ? 35 : 50;
             return `<svg style="position:absolute; top:40px; left:-25px; width:50px; height:80px; pointer-events:none; overflow:visible; z-index: 5;">
-                <path d="M 0 0 L 0 10" stroke="#000" stroke-width="2"/>
-                ${symbol}
-                <path d="M 0 ${yEnd} L 0 ${yTerra}" stroke="#000" stroke-width="2"/>
+                <path d="M 0 0 L 0 10" stroke="#000" stroke-width="2"/>${symbol}<path d="M 0 ${yEnd} L 0 ${yTerra}" stroke="#000" stroke-width="2"/>
                 <path d="M -12 ${yTerra} L 12 ${yTerra}" stroke="#000" stroke-width="2"/>
                 <path d="M -8 ${yTerra+5} L 8 ${yTerra+5}" stroke="#000" stroke-width="2"/>
                 <path d="M -4 ${yTerra+10} L 4 ${yTerra+10}" stroke="#000" stroke-width="2"/>
@@ -112,12 +104,24 @@ html_canvas = """
         function renderBarra(b) {
             if(b.el) b.el.remove();
             const el = document.createElement("div"); el.className = "component"; el.style.left = b.x + "px"; el.style.top = b.y + "px";
-            let bottomText = ""; let topText = `Barra ${b.id}`;
-            if (b.type === 'slack') { topText += " (Slack)"; bottomText = `V=${b.v}∠${b.theta}°`; } 
-            else if (b.type === 'PV') { const g = geradores.find(x => x.barraId === b.id); bottomText = g ? `P=${g.p}, V=${g.v}` : `P, V`; } 
-            else { const c = cargas.find(x => x.barraId === b.id); bottomText = c ? `P=${c.p}, Q=${c.q}` : `P, Q`; }
-            const angle = (b.rotState || 0) * 90;
             
+            const g = geradores.find(x => x.barraId === b.id);
+            const c = cargas.find(x => x.barraId === b.id);
+            
+            let bottomText = ""; let topText = `Barra ${b.id}`;
+            let net_p = (g ? g.p : 0) - (c ? c.p : 0);
+            let net_q = - (c ? c.q : 0);
+
+            if (b.type === 'slack') { 
+                topText += " (Slack)"; 
+                bottomText = `V=${b.v}∠${b.theta}°`; 
+            } else if (b.type === 'PV') { 
+                bottomText = `V=${g.v} | Pliq=${net_p.toFixed(2)}`; 
+            } else { 
+                bottomText = `Pliq=${net_p.toFixed(2)}, Qliq=${net_q.toFixed(2)}`; 
+            }
+            
+            const angle = (b.rotState || 0) * 90;
             const shuntVisual = getBusShuntSVG(b.bsh_bus);
             
             el.innerHTML = `<div class="label" style="top: -35px;">${topText}</div>
@@ -129,20 +133,27 @@ html_canvas = """
         }
 
         function rotateBarra() { if (selectedType !== 'barra') return; selectedElement.rotState = ((selectedElement.rotState || 0) + 1) % 4; renderBarra(selectedElement); updateAllWires(); }
-        function addBarra() { const b = { id: idCounter++, type: 'PQ', x: 400, y: 300, bsh_bus: 0, rotState: 0, el: null, p: 0, q: 0 }; barras.push(b); renderBarra(b); selectElement(b, 'barra'); }
+        function addBarra() { const b = { id: idCounter++, type: 'PQ', x: 400, y: 300, bsh_bus: 0, rotState: 0, el: null }; barras.push(b); renderBarra(b); selectElement(b, 'barra'); }
 
         function attachComponent(tipo) {
             if (selectedType !== 'barra') { alert("Selecione uma barra primeiro!"); return; }
-            const barra = selectedElement; if (barra.type === 'slack') { alert("A barra Slack é intocável!"); return; }
+            const barra = selectedElement; 
+            
             if (tipo === 'gerador') {
-                cargas = cargas.filter(c => { if(c.barraId===barra.id) { c.el.remove(); c.elWire.remove(); } return c.barraId !== barra.id; });
-                geradores = geradores.filter(g => { if(g.barraId===barra.id) { g.el.remove(); g.elWire.remove(); } return g.barraId !== barra.id; });
-                const g = { id: idCounter++, barraId: barra.id, p: 0.5, v: 1.04, el: null, elWire: null }; geradores.push(g); barra.type = 'PV'; renderGerador(g);
+                if(geradores.find(g => g.barraId === barra.id)) return; // Evita duplicar o mesmo tipo
+                const g = { id: idCounter++, barraId: barra.id, p: 0.5, v: 1.04, el: null, elWire: null }; 
+                geradores.push(g); renderGerador(g);
             } else if (tipo === 'carga') {
-                geradores = geradores.filter(g => { if(g.barraId===barra.id) { g.el.remove(); g.elWire.remove(); } return g.barraId !== barra.id; });
-                cargas = cargas.filter(c => { if(c.barraId===barra.id) { c.el.remove(); c.elWire.remove(); } return c.barraId !== barra.id; });
-                const c = { id: idCounter++, barraId: barra.id, p: 1.0, q: 0.5, el: null, elWire: null }; cargas.push(c); barra.type = 'PQ'; renderCarga(c);
+                if(cargas.find(c => c.barraId === barra.id)) return; 
+                const c = { id: idCounter++, barraId: barra.id, p: 1.0, q: 0.5, el: null, elWire: null }; 
+                cargas.push(c); renderCarga(c);
             }
+            
+            if (barra.type !== 'slack') {
+                if (geradores.find(g => g.barraId === barra.id)) barra.type = 'PV';
+                else barra.type = 'PQ';
+            }
+            
             renderBarra(barra); updateAllWires();
         }
 
@@ -153,6 +164,7 @@ html_canvas = """
         function positionAttached(item, barra, tipo) {
             const offset = 140; 
             let cx = barra.x, cy = barra.y; const state = barra.rotState || 0;
+            // Se for gerador vai para um lado (negativo do offset), se for carga vai para o outro (positivo)
             if (state === 0) { if (tipo === 'gerador') cx -= offset; else cx += offset; } 
             else if (state === 1) { if (tipo === 'gerador') cy -= offset; else cy += offset; } 
             else if (state === 2) { if (tipo === 'gerador') cx += offset; else cx -= offset; } 
@@ -260,19 +272,29 @@ html_canvas = """
             
             if (type === 'barra') {
                 item.el.classList.add("selected"); document.getElementById("panel-title").innerText = `Barra ${item.id} (${item.type})`;
+                
+                const g = geradores.find(x => x.barraId === item.id);
+                const c = cargas.find(x => x.barraId === item.id);
+
                 html += `<button class="btn" style="width:100%; margin-bottom:15px; background:#f0f0f0;" onclick="rotateBarra()">↻ Girar a Barra (360º)</button>`;
+                
                 if(item.type === 'slack') {
                     html += `<div class="prop-group"><label>Módulo V (pu)</label><input type="number" step="0.01" value="${item.v}" onchange="updateProp('v', this.value)"></div>`;
                     html += `<div class="prop-group"><label>Ângulo θ (°)</label><input type="number" step="1" value="${item.theta}" onchange="updateProp('theta', this.value)"></div>`;
-                } else if(item.type === 'PV') {
-                    const g = geradores.find(x => x.barraId === item.id);
-                    html += `<div class="prop-group"><label>Potência P (pu)</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
-                    html += `<div class="prop-group"><label>Tensão V (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
-                } else {
-                    const c = cargas.find(x => x.barraId === item.id);
-                    if(c){ html += `<div class="prop-group"><label>Carga P (pu)</label><input type="number" step="0.1" value="${c.p}" onchange="updateComponent('carga', 'p', this.value)"></div>`; html += `<div class="prop-group"><label>Carga Q (pu)</label><input type="number" step="0.1" value="${c.q}" onchange="updateComponent('carga', 'q', this.value)"></div>`; } 
-                    else { html += `<p style="font-size:12px; color:#666">Conecte Cargas ou Geradores.</p>`; }
+                } else if(g) {
+                    html += `<div class="prop-group"><label>Tensão V Especificada (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
                 }
+                
+                if(g) {
+                    html += `<h5 style="margin:10px 0 5px 0; color:#d32f2f; border-bottom: 1px solid #ddd;">⚙️ Gerador</h5>`;
+                    html += `<div class="prop-group"><label>Potência P (pu)</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
+                }
+                if(c) {
+                    html += `<h5 style="margin:10px 0 5px 0; color:#1976d2; border-bottom: 1px solid #ddd;">🔋 Carga</h5>`;
+                    html += `<div class="prop-group"><label>Carga P (pu)</label><input type="number" step="0.1" value="${c.p}" onchange="updateComponent('carga', 'p', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Carga Q (pu)</label><input type="number" step="0.1" value="${c.q}" onchange="updateComponent('carga', 'q', this.value)"></div>`;
+                }
+                
                 html += `<hr style="margin: 10px 0;"><div class="prop-group"><label>Shunt na Barra (pu)</label><input type="number" step="0.01" value="${item.bsh_bus}" onchange="updateProp('bsh_bus', this.value)"></div>`;
                 html += `<p style="font-size:11px; color:#666; margin-top:-5px;">(+) Capacitor / (-) Indutor</p>`;
             } else if (type === 'linha') {
@@ -304,10 +326,22 @@ html_canvas = """
         function exportarParaPython() {
             const sistema = {
                 barras: barras.map(b => {
-                    let obj = { id: b.id, tipo: b.type, bsh_bus: b.bsh_bus };
-                    if(b.type === 'slack') { obj.v = b.v; obj.theta = b.theta; }
-                    else if(b.type === 'PV') { const g = geradores.find(x => x.barraId === b.id); obj.p = g ? g.p : 0; obj.v = g ? g.v : 1.0; } 
-                    else { const c = cargas.find(x => x.barraId === b.id); obj.p = c ? -c.p : 0; obj.q = c ? -c.q : 0; }
+                    const g = geradores.find(x => x.barraId === b.id);
+                    const c = cargas.find(x => x.barraId === b.id);
+                    
+                    let obj = { 
+                        id: b.id, 
+                        tipo: b.type, 
+                        bsh_bus: b.bsh_bus,
+                        p: (g ? g.p : 0) - (c ? c.p : 0),
+                        q: -(c ? c.q : 0) // Gerador Q entra como incógnita ou limite (ignoramos no chute base)
+                    };
+                    
+                    if(b.type === 'slack') { 
+                        obj.v = b.v; obj.theta = b.theta; 
+                    } else if (g) { 
+                        obj.v = g.v;
+                    }
                     return obj;
                 }),
                 linhas: linhas.map(l => ({ de: l.b1, para: l.b2, r: l.r, x: l.x, bsh: l.bsh }))
@@ -324,7 +358,6 @@ html_canvas = """
 # ==========================================
 component_dir = os.path.abspath("canvas_sep_component")
 
-# Ordem correta para evitar o erro na nuvem
 if not os.path.exists(component_dir):
     os.makedirs(component_dir, exist_ok=True)
 with open(os.path.join(component_dir, "index.html"), "w", encoding="utf-8") as f:
@@ -345,14 +378,14 @@ if dados_do_canvas is not None:
         id_map[b['id']] = idx + 1
         
     with col_tb1:
-        st.markdown("<h4 style='text-align: center;'>Dados de Barras</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align: center;'>Dados de Barras (Injeção Líquida)</h4>", unsafe_allow_html=True)
         tb_barras = []
         for b in dados_do_canvas.get('barras', []):
             tipo = b['tipo'].upper()
             if tipo == 'SLACK': p, q, v, th = '---', '---', b.get('v', 1.0), b.get('theta', 0.0)
             elif tipo == 'PV': p, q, v, th = b.get('p', 0.0), '---', b.get('v', 1.0), '---'
             else: p, q, v, th = b.get('p', 0.0), b.get('q', 0.0), '---', '---'
-            tb_barras.append({ "Barra": id_map[b['id']], "P": p, "Q": q, "V": v, "θ (rad)": th, "Bsh_Barra": b.get('bsh_bus', 0.0) })
+            tb_barras.append({ "Barra": id_map[b['id']], "P_liq": p, "Q_liq": q, "V": v, "θ (rad)": th, "Bsh_Barra": b.get('bsh_bus', 0.0) })
         if tb_barras: st.table(pd.DataFrame(tb_barras).set_index("Barra"))
             
     with col_tb2:
@@ -370,7 +403,7 @@ if dados_do_canvas is not None:
             for b in dados_do_canvas['barras']:
                 tipo_map = {'slack': 'Slack', 'PV': 'PV', 'PQ': 'PQ'}
                 backend_buses.append({ 
-                    "type": tipo_map[b['tipo']], 
+                    "type": tipo_map[b['tipo'].lower()], 
                     "V": float(b.get('v', 1.0)), 
                     "theta": float(b.get('theta', 0.0)), 
                     "P": float(b.get('p', 0.0)), 
@@ -403,7 +436,6 @@ if dados_do_canvas is not None:
                 # ==========================================
                 st.markdown("<h2 style='text-align: center; color: #2e7d32;'>📚 Memória de Cálculo Passo a Passo</h2>", unsafe_allow_html=True)
                 
-                # --- PASSO 1: MATRIZ YBUS ---
                 st.markdown("### 🔹 Passo 1: Montagem da Matriz de Admitância Nodal ($Y_{bus}$)")
                 rotulos_y = [f"Barra {idx}" for idx in id_map.values()]
                 df_ybus = formatar_ybus(Ybus)
@@ -411,8 +443,7 @@ if dados_do_canvas is not None:
                 df_ybus.index = rotulos_y
                 st.dataframe(df_ybus)
 
-                # --- PASSO 2: ESTADO INICIAL E POTÊNCIAS ---
-                st.markdown("### 🔹 Passo 2: Chutes Iniciais e Potências Especificadas")
+                st.markdown("### 🔹 Passo 2: Chutes Iniciais e Potências Especificadas Líquidas")
                 col_ini1, col_ini2 = st.columns(2)
                 with col_ini1:
                     st.markdown("**Vetor de Estado Inicial ($\\nu = 0$)**")
@@ -424,7 +455,6 @@ if dados_do_canvas is not None:
                     st.latex(r"Q^{esp} = " + formatar_vetor_latex(Q_spec))
                     st.caption("*(Nota: Potências ativas nas barras Slack ou reativas nas barras PV/Slack aparecem como 0.0 pois não entram no Mismatch).*")
 
-                # --- PASSO 3: AVALIAÇÃO INICIAL ---
                 st.markdown("### 🔹 Passo 3: Avaliação Inicial (Iteração $\\nu = 0$)")
                 dados_iter0 = log_iteracoes[0]
                 
@@ -441,7 +471,6 @@ if dados_do_canvas is not None:
                 st.markdown("**Teste de Convergência:**")
                 st.latex(r"\max \left\{ |\Delta P|, |\Delta Q| \right\} = " + f"{dados_iter0['erro']:.6f} \quad \text{{(Tolerância: }} {tol_input} \text{{)}}")
                 
-                # --- PASSO 4: PROCESSO ITERATIVO SELETIVO ---
                 if dados_iter0['convergiu']:
                     st.success("✅ O sistema convergiu perfeitamente logo no passo inicial!")
                 else:
