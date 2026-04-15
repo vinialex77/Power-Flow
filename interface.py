@@ -5,13 +5,13 @@ import pandas as pd
 import os
 
 try:
-    from PowerFlow.ybus import build_ybus
-    from PowerFlow.newton_raphson import newton_raphson
+    # IMPORTS CORRIGIDOS PARA ARQUIVOS SOLTOS
+    from ybus import build_ybus
+    from newton_raphson import newton_raphson
 except ImportError:
-    st.error("⚠️ Pasta 'PowerFlow' não encontrada. Verifique os arquivos.")
+    st.error("⚠️ Arquivos do motor (ybus.py, newton_raphson.py, etc) não encontrados. Verifique se todos estão soltos na mesma pasta.")
     st.stop()
 
-# Funcionalidades Auxiliares para formatação
 def formatar_vetor_latex(vec, precisao=4):
     elementos = [f"{v:.{precisao}f}" for v in vec]
     return r"\begin{bmatrix} " + r" \\ ".join(elementos) + r" \end{bmatrix}"
@@ -22,22 +22,16 @@ def formatar_ybus(ybus):
 
 st.set_page_config(page_title="Simulador SEP Visual", layout="wide")
 
-# ==========================================
-# MENU LATERAL (CONTROLES DO USUÁRIO)
-# ==========================================
 with st.sidebar:
     st.header("⚙️ Parâmetros do Cálculo")
     st.markdown("Defina os critérios de parada do Newton-Raphson:")
     tol_input = st.number_input("Tolerância (Erro Máximo)", value=0.001, format="%f", step=0.0001)
     max_iter_input = st.number_input("Máximo de Iterações", value=20, min_value=1, step=1)
     st.markdown("---")
-    st.info("💡 **Dica de Uso:** As alterações feitas aqui serão aplicadas assim que você clicar em 'Calcular Fluxo' na tela principal.")
+    st.info("💡 **Dica de Uso:** As alterações feitas aqui serão aplicadas assim que você clicar em 'Calcular Fluxo'.")
 
 st.markdown("<h2 style='text-align: center; color: #1976d2;'>Simulador Visual e Didático de Fluxo de Potência</h2>", unsafe_allow_html=True)
 
-# ==========================================
-# CÓDIGO HTML/JS DO CANVAS 
-# ==========================================
 html_canvas = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -329,6 +323,8 @@ html_canvas = """
 # RENDERIZAÇÃO E PONTE COM O CANVAS
 # ==========================================
 component_dir = os.path.abspath("canvas_sep_component")
+
+# Ordem correta para evitar o erro na nuvem
 if not os.path.exists(component_dir):
     os.makedirs(component_dir, exist_ok=True)
 with open(os.path.join(component_dir, "index.html"), "w", encoding="utf-8") as f:
@@ -337,6 +333,9 @@ with open(os.path.join(component_dir, "index.html"), "w", encoding="utf-8") as f
 componente_canvas = components.declare_component("canvas_sep", path=component_dir)
 dados_do_canvas = componente_canvas(key="meu_canvas")
 
+# ==========================================
+# PROCESSAMENTO DOS DADOS NO BACKEND
+# ==========================================
 if dados_do_canvas is not None:
     st.markdown("---")
     
@@ -353,14 +352,14 @@ if dados_do_canvas is not None:
             if tipo == 'SLACK': p, q, v, th = '---', '---', b.get('v', 1.0), b.get('theta', 0.0)
             elif tipo == 'PV': p, q, v, th = b.get('p', 0.0), '---', b.get('v', 1.0), '---'
             else: p, q, v, th = b.get('p', 0.0), b.get('q', 0.0), '---', '---'
-            tb_barras.append({ "Barra": id_map[b['id']], "P": p, "Q": q, "V": v, "θ (rad)": th, "Bsh": b.get('bsh_bus', 0.0) })
+            tb_barras.append({ "Barra": id_map[b['id']], "P": p, "Q": q, "V": v, "θ (rad)": th, "Bsh_Barra": b.get('bsh_bus', 0.0) })
         if tb_barras: st.table(pd.DataFrame(tb_barras).set_index("Barra"))
             
     with col_tb2:
         st.markdown("<h4 style='text-align: center;'>Dados de Linha</h4>", unsafe_allow_html=True)
         tb_linhas = []
         for l in dados_do_canvas.get('linhas', []):
-            tb_linhas.append({ "Linhas": f"{id_map[l['de']]}-{id_map[l['para']]}", "r": l['r'], "x": l['x'], "bsh": l.get('bsh', 0.0) })
+            tb_linhas.append({ "Linhas": f"{id_map[l['de']]}-{id_map[l['para']]}", "r": l['r'], "x": l['x'], "bsh_linha": l.get('bsh', 0.0) })
         if tb_linhas: st.table(pd.DataFrame(tb_linhas).set_index("Linhas"))
 
     if len(dados_do_canvas.get('linhas', [])) == 0:
