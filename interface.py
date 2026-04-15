@@ -8,7 +8,7 @@ try:
     from ybus import build_ybus
     from newton_raphson import newton_raphson
 except ImportError:
-    st.error("⚠️ Arquivos do motor (ybus.py, newton_raphson.py, etc) não encontrados. Verifique se todos estão soltos na mesma pasta.")
+    st.error("⚠️ Arquivos do motor matemático não encontrados na mesma pasta.")
     st.stop()
 
 def formatar_vetor_latex(vec, precisao=4):
@@ -23,16 +23,20 @@ st.set_page_config(page_title="Simulador SEP Visual", layout="wide")
 
 with st.sidebar:
     st.header("⚙️ Parâmetros do Cálculo")
+    st.markdown("Critérios de parada do Newton-Raphson:")
     tol_input = st.number_input("Tolerância (Erro Máximo)", value=0.001, format="%f", step=0.0001)
     max_iter_input = st.number_input("Máximo de Iterações", value=20, min_value=1, step=1)
     st.markdown("---")
-    st.info("💡 **Dica de Uso:** As alterações feitas aqui serão aplicadas assim que você clicar em 'Calcular Fluxo'.")
+    st.info("💡 **Dica:** As alterações feitas aqui e as unidades de potência aplicam-se ao clicar em 'Calcular Fluxo'.")
 
 st.markdown("<h2 style='text-align: center; color: #1976d2;'>Simulador Visual e Didático de Fluxo de Potência</h2>", unsafe_allow_html=True)
 
+# ==========================================
+# CÓDIGO HTML/JS DO CANVAS (COM SELETOR DE UNIDADES)
+# ==========================================
 html_canvas = """
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-PT">
 <head>
     <meta charset="UTF-8">
     <style>
@@ -43,6 +47,8 @@ html_canvas = """
         .btn-danger { color: #d32f2f; border-color: #d32f2f; }
         .btn-action { background: #1976d2; color: white; border-color: #115293; }
         .btn-calc { background: #2e7d32; color: white; border-color: #1b5e20; margin-left: auto; }
+        .divider { border-left: 2px solid #999; height: 25px; margin: 0 5px; }
+        
         #workspace { position: relative; height: 600px; cursor: default; background-color: #cfcfcf; }
         .component { position: absolute; cursor: pointer; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -50%); z-index: 20; }
         .component.selected .barra-linha { box-shadow: 0 0 10px 3px #1976d2; background: #1976d2; }
@@ -67,6 +73,16 @@ html_canvas = """
         <button class="btn" onclick="attachComponent('carga')">+ Carga</button>
         <button class="btn btn-action" id="btnConnect" onclick="toggleConnectMode()">🔗 Conectar</button>
         <button class="btn btn-danger" onclick="deleteSelected()">🗑 Excluir</button>
+        
+        <div class="divider"></div>
+        <label style="font-size:12px; font-weight:bold; margin-left:5px;">S<sub>base</sub>:</label>
+        <input type="number" id="baseMVA" value="100" style="width:50px; padding:6px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+        <label style="font-size:12px; font-weight:bold;">MVA</label>
+        <select id="unitSelect" style="padding:6px; border:1px solid #ccc; border-radius:4px; margin-left:5px;" onchange="refreshPanel()">
+            <option value="pu">Entrada em p.u.</option>
+            <option value="MVA">Entrada em MW/MVar</option>
+        </select>
+        
         <button class="btn btn-calc" onclick="exportarParaPython()">▶ CALCULAR FLUXO</button>
     </div>
     <div id="workspace"><svg id="wires"></svg><div id="properties-panel"><h4 id="panel-title">Propriedades</h4><div id="panel-content"></div></div></div>
@@ -83,6 +99,8 @@ html_canvas = """
         
         function initSlack() { const b1 = { id: idCounter++, type: 'slack', x: 150, y: 300, v: 1.06, theta: 0, bsh_bus: 0, rotState: 0, el: null }; barras.push(b1); renderBarra(b1); }
         initSlack();
+
+        function refreshPanel() { if(selectedElement) selectElement(selectedElement, selectedType); }
 
         function getBusShuntSVG(val) {
             if (!val || val === 0) return "";
@@ -108,6 +126,10 @@ html_canvas = """
             const g = geradores.find(x => x.barraId === b.id);
             const c = cargas.find(x => x.barraId === b.id);
             
+            let isMVA = document.getElementById("unitSelect").value === 'MVA';
+            let unitStr = isMVA ? " MW" : " pu";
+            let qUnitStr = isMVA ? " MVar" : " pu";
+
             let bottomText = ""; let topText = `Barra ${b.id}`;
             let net_p = (g ? g.p : 0) - (c ? c.p : 0);
             let net_q = - (c ? c.q : 0);
@@ -116,9 +138,9 @@ html_canvas = """
                 topText += " (Slack)"; 
                 bottomText = `V=${b.v}∠${b.theta}°`; 
             } else if (b.type === 'PV') { 
-                bottomText = `V=${g.v} | Pliq=${net_p.toFixed(2)}`; 
+                bottomText = `V=${g.v} | Pliq=${net_p.toFixed(2)}${unitStr}`; 
             } else { 
-                bottomText = `Pliq=${net_p.toFixed(2)}, Qliq=${net_q.toFixed(2)}`; 
+                bottomText = `P=${net_p.toFixed(2)}${unitStr}, Q=${net_q.toFixed(2)}${qUnitStr}`; 
             }
             
             const angle = (b.rotState || 0) * 90;
@@ -140,7 +162,7 @@ html_canvas = """
             const barra = selectedElement; 
             
             if (tipo === 'gerador') {
-                if(geradores.find(g => g.barraId === barra.id)) return; // Evita duplicar o mesmo tipo
+                if(geradores.find(g => g.barraId === barra.id)) return;
                 const g = { id: idCounter++, barraId: barra.id, p: 0.5, v: 1.04, el: null, elWire: null }; 
                 geradores.push(g); renderGerador(g);
             } else if (tipo === 'carga') {
@@ -164,7 +186,6 @@ html_canvas = """
         function positionAttached(item, barra, tipo) {
             const offset = 140; 
             let cx = barra.x, cy = barra.y; const state = barra.rotState || 0;
-            // Se for gerador vai para um lado (negativo do offset), se for carga vai para o outro (positivo)
             if (state === 0) { if (tipo === 'gerador') cx -= offset; else cx += offset; } 
             else if (state === 1) { if (tipo === 'gerador') cy -= offset; else cy += offset; } 
             else if (state === 2) { if (tipo === 'gerador') cx += offset; else cx -= offset; } 
@@ -268,6 +289,11 @@ html_canvas = """
             selectedElement = item; selectedType = type;
             document.querySelectorAll(".component.selected").forEach(el => el.classList.remove("selected")); document.querySelectorAll(".wire-path.selected").forEach(el => el.classList.remove("selected"));
             panel.style.display = item ? "block" : "none"; if(!item) return;
+            
+            let isMVA = document.getElementById("unitSelect").value === 'MVA';
+            let strP = isMVA ? "P (MW)" : "P (pu)";
+            let strQ = isMVA ? "Q (MVar)" : "Q (pu)";
+
             const content = document.getElementById("panel-content"); let html = "";
             
             if (type === 'barra') {
@@ -282,23 +308,24 @@ html_canvas = """
                     html += `<div class="prop-group"><label>Módulo V (pu)</label><input type="number" step="0.01" value="${item.v}" onchange="updateProp('v', this.value)"></div>`;
                     html += `<div class="prop-group"><label>Ângulo θ (°)</label><input type="number" step="1" value="${item.theta}" onchange="updateProp('theta', this.value)"></div>`;
                 } else if(g) {
-                    html += `<div class="prop-group"><label>Tensão V Especificada (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Tensão V Especif. (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
                 }
                 
                 if(g) {
                     html += `<h5 style="margin:10px 0 5px 0; color:#d32f2f; border-bottom: 1px solid #ddd;">⚙️ Gerador</h5>`;
-                    html += `<div class="prop-group"><label>Potência P (pu)</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Potência ${strP}</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
                 }
                 if(c) {
                     html += `<h5 style="margin:10px 0 5px 0; color:#1976d2; border-bottom: 1px solid #ddd;">🔋 Carga</h5>`;
-                    html += `<div class="prop-group"><label>Carga P (pu)</label><input type="number" step="0.1" value="${c.p}" onchange="updateComponent('carga', 'p', this.value)"></div>`;
-                    html += `<div class="prop-group"><label>Carga Q (pu)</label><input type="number" step="0.1" value="${c.q}" onchange="updateComponent('carga', 'q', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Carga ${strP}</label><input type="number" step="0.1" value="${c.p}" onchange="updateComponent('carga', 'p', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Carga ${strQ}</label><input type="number" step="0.1" value="${c.q}" onchange="updateComponent('carga', 'q', this.value)"></div>`;
                 }
                 
                 html += `<hr style="margin: 10px 0;"><div class="prop-group"><label>Shunt na Barra (pu)</label><input type="number" step="0.01" value="${item.bsh_bus}" onchange="updateProp('bsh_bus', this.value)"></div>`;
                 html += `<p style="font-size:11px; color:#666; margin-top:-5px;">(+) Capacitor / (-) Indutor</p>`;
             } else if (type === 'linha') {
                 item.elPath.classList.add("selected"); document.getElementById("panel-title").innerText = `Linha (B${item.b1} ↔ B${item.b2})`;
+                html += `<p style="font-size:11px; color:#666; margin-top:-5px;">(Impedâncias sempre em p.u.)</p>`;
                 html += `<div class="prop-group"><label>Resistência r (pu)</label><input type="number" step="0.01" value="${item.r}" onchange="updateProp('r', this.value)"></div>`;
                 html += `<div class="prop-group"><label>Reatância x (pu)</label><input type="number" step="0.01" value="${item.x}" onchange="updateProp('x', this.value)"></div>`;
                 html += `<div class="prop-group"><label>Susceptância bsh (pu)</label><input type="number" step="0.01" value="${item.bsh}" onchange="updateProp('bsh', this.value)"></div>`;
@@ -308,6 +335,7 @@ html_canvas = """
 
         function updateProp(key, value) { selectedElement[key] = parseFloat(value); if(selectedType === 'barra') renderBarra(selectedElement); if(selectedType === 'linha') updateAllWires(); }
         function updateComponent(compType, key, value) { if(compType === 'gerador') { geradores.find(x => x.barraId === selectedElement.id)[key] = parseFloat(value); } else { cargas.find(x => x.barraId === selectedElement.id)[key] = parseFloat(value); } renderBarra(selectedElement); }
+        
         function deleteSelected() {
             if(!selectedElement) return;
             if(selectedType === 'barra') {
@@ -323,8 +351,11 @@ html_canvas = """
             }
             selectElement(null, null); updateAllWires();
         }
+        
         function exportarParaPython() {
             const sistema = {
+                baseMVA: parseFloat(document.getElementById("baseMVA").value),
+                unidade: document.getElementById("unitSelect").value,
                 barras: barras.map(b => {
                     const g = geradores.find(x => x.barraId === b.id);
                     const c = cargas.find(x => x.barraId === b.id);
@@ -333,15 +364,11 @@ html_canvas = """
                         id: b.id, 
                         tipo: b.type, 
                         bsh_bus: b.bsh_bus,
-                        p: (g ? g.p : 0) - (c ? c.p : 0),
-                        q: -(c ? c.q : 0) // Gerador Q entra como incógnita ou limite (ignoramos no chute base)
+                        p_raw: (g ? g.p : 0) - (c ? c.p : 0),
+                        q_raw: -(c ? c.q : 0) 
                     };
                     
-                    if(b.type === 'slack') { 
-                        obj.v = b.v; obj.theta = b.theta; 
-                    } else if (g) { 
-                        obj.v = g.v;
-                    }
+                    if(b.type === 'slack') { obj.v = b.v; obj.theta = b.theta; } else if (g) { obj.v = g.v; }
                     return obj;
                 }),
                 linhas: linhas.map(l => ({ de: l.b1, para: l.b2, r: l.r, x: l.x, bsh: l.bsh }))
@@ -372,27 +399,39 @@ dados_do_canvas = componente_canvas(key="meu_canvas")
 if dados_do_canvas is not None:
     st.markdown("---")
     
+    # Extração de Unidades e Divisor
+    base_mva = dados_do_canvas.get('baseMVA', 100.0)
+    unidade = dados_do_canvas.get('unidade', 'pu')
+    divisor = base_mva if unidade == 'MVA' else 1.0
+    
+    str_p = "P (MW)" if unidade == 'MVA' else "P (pu)"
+    str_q = "Q (MVar)" if unidade == 'MVA' else "Q (pu)"
+
     col_tb1, col_tb2 = st.columns(2)
     id_map = {} 
     for idx, b in enumerate(dados_do_canvas.get('barras', [])):
         id_map[b['id']] = idx + 1
         
     with col_tb1:
-        st.markdown("<h4 style='text-align: center;'>Dados de Barras (Injeção Líquida)</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center;'>Dados de Barras (Base: {base_mva} MVA)</h4>", unsafe_allow_html=True)
         tb_barras = []
         for b in dados_do_canvas.get('barras', []):
             tipo = b['tipo'].upper()
-            if tipo == 'SLACK': p, q, v, th = '---', '---', b.get('v', 1.0), b.get('theta', 0.0)
-            elif tipo == 'PV': p, q, v, th = b.get('p', 0.0), '---', b.get('v', 1.0), '---'
-            else: p, q, v, th = b.get('p', 0.0), b.get('q', 0.0), '---', '---'
-            tb_barras.append({ "Barra": id_map[b['id']], "P_liq": p, "Q_liq": q, "V": v, "θ (rad)": th, "Bsh_Barra": b.get('bsh_bus', 0.0) })
+            if tipo == 'SLACK': 
+                p, q, v, th = '---', '---', b.get('v', 1.0), b.get('theta', 0.0)
+            elif tipo == 'PV': 
+                p, q, v, th = b.get('p_raw', 0.0), '---', b.get('v', 1.0), '---'
+            else: 
+                p, q, v, th = b.get('p_raw', 0.0), b.get('q_raw', 0.0), '---', '---'
+                
+            tb_barras.append({ "Barra": id_map[b['id']], str_p: p, str_q: q, "V (pu)": v, "θ (º)": th, "Bsh (pu)": b.get('bsh_bus', 0.0) })
         if tb_barras: st.table(pd.DataFrame(tb_barras).set_index("Barra"))
             
     with col_tb2:
         st.markdown("<h4 style='text-align: center;'>Dados de Linha</h4>", unsafe_allow_html=True)
         tb_linhas = []
         for l in dados_do_canvas.get('linhas', []):
-            tb_linhas.append({ "Linhas": f"{id_map[l['de']]}-{id_map[l['para']]}", "r": l['r'], "x": l['x'], "bsh_linha": l.get('bsh', 0.0) })
+            tb_linhas.append({ "Linhas": f"{id_map[l['de']]}-{id_map[l['para']]}", "R (pu)": l['r'], "X (pu)": l['x'], "Bsh (pu)": l.get('bsh', 0.0) })
         if tb_linhas: st.table(pd.DataFrame(tb_linhas).set_index("Linhas"))
 
     if len(dados_do_canvas.get('linhas', [])) == 0:
@@ -402,12 +441,14 @@ if dados_do_canvas is not None:
             backend_buses = []
             for b in dados_do_canvas['barras']:
                 tipo_map = {'slack': 'Slack', 'PV': 'PV', 'PQ': 'PQ'}
+                
+                # Conversão crucial: Divide pelo divisor para garantir que o motor opere estritamente em p.u.
                 backend_buses.append({ 
                     "type": tipo_map[b['tipo'].lower()], 
                     "V": float(b.get('v', 1.0)), 
                     "theta": float(b.get('theta', 0.0)), 
-                    "P": float(b.get('p', 0.0)), 
-                    "Q": float(b.get('q', 0.0)),
+                    "P": float(b.get('p_raw', 0.0)) / divisor, 
+                    "Q": float(b.get('q_raw', 0.0)) / divisor,
                     "Bsh_bus": float(b.get('bsh_bus', 0.0))
                 })
 
@@ -435,6 +476,7 @@ if dados_do_canvas is not None:
                 # SEÇÃO EDUCACIONAL: PASSO A PASSO
                 # ==========================================
                 st.markdown("<h2 style='text-align: center; color: #2e7d32;'>📚 Memória de Cálculo Passo a Passo</h2>", unsafe_allow_html=True)
+                st.caption(f"*(Nota: O processamento interno do Newton-Raphson opera **estritamente em p.u.** Todas as grandezas abaixo foram convertidas utilizando a base de {base_mva} MVA, conforme exigido pela literatura de SEP).*")
                 
                 st.markdown("### 🔹 Passo 1: Montagem da Matriz de Admitância Nodal ($Y_{bus}$)")
                 rotulos_y = [f"Barra {idx}" for idx in id_map.values()]
@@ -443,17 +485,17 @@ if dados_do_canvas is not None:
                 df_ybus.index = rotulos_y
                 st.dataframe(df_ybus)
 
-                st.markdown("### 🔹 Passo 2: Chutes Iniciais e Potências Especificadas Líquidas")
+                st.markdown("### 🔹 Passo 2: Chutes Iniciais e Potências Especificadas (em p.u.)")
                 col_ini1, col_ini2 = st.columns(2)
                 with col_ini1:
                     st.markdown("**Vetor de Estado Inicial ($\\nu = 0$)**")
                     st.latex(r"V^{(0)} = " + formatar_vetor_latex(log_iteracoes[0]['V_nu']))
                     st.latex(r"\theta^{(0)} = " + formatar_vetor_latex(log_iteracoes[0]['theta_nu']))
                 with col_ini2:
-                    st.markdown("**Potências Especificadas ($P^{esp}$ e $Q^{esp}$)**")
+                    st.markdown("**Potências Especificadas Líquidas**")
                     st.latex(r"P^{esp} = " + formatar_vetor_latex(P_spec))
                     st.latex(r"Q^{esp} = " + formatar_vetor_latex(Q_spec))
-                    st.caption("*(Nota: Potências ativas nas barras Slack ou reativas nas barras PV/Slack aparecem como 0.0 pois não entram no Mismatch).*")
+                    st.caption("*(Valores das barras Slack e Q das barras PV constam como 0.0, pois são variáveis dependentes).*")
 
                 st.markdown("### 🔹 Passo 3: Avaliação Inicial (Iteração $\\nu = 0$)")
                 dados_iter0 = log_iteracoes[0]
@@ -474,7 +516,7 @@ if dados_do_canvas is not None:
                 if dados_iter0['convergiu']:
                     st.success("✅ O sistema convergiu perfeitamente logo no passo inicial!")
                 else:
-                    st.warning("⚠️ O critério de parada não foi atingido no passo 0. O algoritmo inicia a montagem da Matriz Jacobiana.")
+                    st.warning("⚠️ O critério de parada não foi atingido. O algoritmo inicia a montagem da Matriz Jacobiana.")
                     st.markdown("---")
                     
                     st.markdown("### 🔹 Passo 4: Processo Iterativo (Correções e Jacobianas)")
