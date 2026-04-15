@@ -440,7 +440,7 @@ if dados_do_canvas is not None:
         with st.spinner("Resolvendo Newton-Raphson..."):
             backend_buses = []
             for b in dados_do_canvas['barras']:
-                tipo_map = {'slack': 'Slack', 'PV': 'PV', 'PQ': 'PQ'}
+                tipo_map = {'slack': 'Slack', 'pv': 'PV', 'pq': 'PQ'} # <--- DICIONÁRIO CORRIGIDO
                 
                 # Conversão crucial: Divide pelo divisor para garantir que o motor opere estritamente em p.u.
                 backend_buses.append({ 
