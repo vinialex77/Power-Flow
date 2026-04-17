@@ -455,7 +455,7 @@ if dados_do_canvas is not None:
         if tb_barras: st.table(pd.DataFrame(tb_barras).set_index("Barra"))
             
     with col_tb2:
-        st.markdown("<h4 style='text-align: center;'>Dados de Linha</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='text-align: center;'>Dadoss de Linha</h4>", unsafe_allow_html=True)
         tb_linhas = []
         for l in dados_do_canvas.get('linhas', []):
             tb_linhas.append({ "Linhas": f"{id_map[l['de']]}-{id_map[l['para']]}", "R (pu)": l['r'], "X (pu)": l['x'], "Bsh (pu)": l.get('bsh', 0.0) })
