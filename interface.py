@@ -8,7 +8,7 @@ try:
     from ybus import build_ybus
     from newton_raphson import newton_raphson
 except ImportError:
-    st.error("⚠️ Arquivos do motor matemático não encontrados na mesma pasta.")
+    st.error("⚠️ Arquivos do motor (ybus.py, newton_raphson.py, etc) não encontrados. Verifique se todos estão soltos na mesma pasta.")
     st.stop()
 
 def formatar_vetor_latex(vec, precisao=4):
@@ -23,7 +23,6 @@ st.set_page_config(page_title="Simulador SEP Visual", layout="wide")
 
 with st.sidebar:
     st.header("⚙️ Parâmetros do Cálculo")
-    st.markdown("Critérios de parada do Newton-Raphson:")
     tol_input = st.number_input("Tolerância (Erro Máximo)", value=0.001, format="%f", step=0.0001)
     max_iter_input = st.number_input("Máximo de Iterações", value=20, min_value=1, step=1)
     st.markdown("---")
@@ -31,9 +30,6 @@ with st.sidebar:
 
 st.markdown("<h2 style='text-align: center; color: #1976d2;'>Simulador Visual e Didático de Fluxo de Potência</h2>", unsafe_allow_html=True)
 
-# ==========================================
-# CÓDIGO HTML/JS DO CANVAS (COM SELETOR DE UNIDADES)
-# ==========================================
 html_canvas = """
 <!DOCTYPE html>
 <html lang="pt-PT">
@@ -48,7 +44,6 @@ html_canvas = """
         .btn-action { background: #1976d2; color: white; border-color: #115293; }
         .btn-calc { background: #2e7d32; color: white; border-color: #1b5e20; margin-left: auto; }
         .divider { border-left: 2px solid #999; height: 25px; margin: 0 5px; }
-        
         #workspace { position: relative; height: 600px; cursor: default; background-color: #cfcfcf; }
         .component { position: absolute; cursor: pointer; display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -50%); z-index: 20; }
         .component.selected .barra-linha { box-shadow: 0 0 10px 3px #1976d2; background: #1976d2; }
@@ -63,7 +58,7 @@ html_canvas = """
         #properties-panel h4 { margin: 0 0 12px 0; font-size: 15px; color: #222; border-bottom: 2px solid #1976d2; padding-bottom: 6px; }
         .prop-group { margin-bottom: 12px; }
         .prop-group label { display: block; font-size: 12px; margin-bottom: 4px; color: #444; font-weight: bold; }
-        .prop-group input { width: 100%; box-sizing: border-box; padding: 6px; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; }
+        .prop-group input, .prop-group select { width: 100%; box-sizing: border-box; padding: 6px; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -132,12 +127,12 @@ html_canvas = """
 
             let bottomText = ""; let topText = `Barra ${b.id}`;
             let net_p = (g ? g.p : 0) - (c ? c.p : 0);
-            let net_q = - (c ? c.q : 0);
+            let net_q = (g ? g.q : 0) - (c ? c.q : 0);
 
             if (b.type === 'slack') { 
                 topText += " (Slack)"; 
                 bottomText = `V=${b.v}∠${b.theta}°`; 
-            } else if (b.type === 'PV') { 
+            } else if (g && g.modo === 'PV') { 
                 bottomText = `V=${g.v} | Pliq=${net_p.toFixed(2)}${unitStr}`; 
             } else { 
                 bottomText = `P=${net_p.toFixed(2)}${unitStr}, Q=${net_q.toFixed(2)}${qUnitStr}`; 
@@ -155,7 +150,7 @@ html_canvas = """
         }
 
         function rotateBarra() { if (selectedType !== 'barra') return; selectedElement.rotState = ((selectedElement.rotState || 0) + 1) % 4; renderBarra(selectedElement); updateAllWires(); }
-        function addBarra() { const b = { id: idCounter++, type: 'PQ', x: 400, y: 300, bsh_bus: 0, rotState: 0, el: null }; barras.push(b); renderBarra(b); selectElement(b, 'barra'); }
+        function addBarra() { const b = { id: idCounter++, type: 'PQ', x: 400, y: 300, bsh_bus: 0, rotState: 0, v: 1.0, theta: 0, el: null }; barras.push(b); renderBarra(b); selectElement(b, 'barra'); }
 
         function attachComponent(tipo) {
             if (selectedType !== 'barra') { alert("Selecione uma barra primeiro!"); return; }
@@ -163,17 +158,13 @@ html_canvas = """
             
             if (tipo === 'gerador') {
                 if(geradores.find(g => g.barraId === barra.id)) return;
-                const g = { id: idCounter++, barraId: barra.id, p: 0.5, v: 1.04, el: null, elWire: null }; 
+                // Gerador agora inicia com campo Q visível
+                const g = { id: idCounter++, barraId: barra.id, p: 0.5, q: 0.0, v: 1.04, modo: 'PV', el: null, elWire: null }; 
                 geradores.push(g); renderGerador(g);
             } else if (tipo === 'carga') {
                 if(cargas.find(c => c.barraId === barra.id)) return; 
                 const c = { id: idCounter++, barraId: barra.id, p: 1.0, q: 0.5, el: null, elWire: null }; 
                 cargas.push(c); renderCarga(c);
-            }
-            
-            if (barra.type !== 'slack') {
-                if (geradores.find(g => g.barraId === barra.id)) barra.type = 'PV';
-                else barra.type = 'PQ';
             }
             
             renderBarra(barra); updateAllWires();
@@ -307,13 +298,31 @@ html_canvas = """
                 if(item.type === 'slack') {
                     html += `<div class="prop-group"><label>Módulo V (pu)</label><input type="number" step="0.01" value="${item.v}" onchange="updateProp('v', this.value)"></div>`;
                     html += `<div class="prop-group"><label>Ângulo θ (°)</label><input type="number" step="1" value="${item.theta}" onchange="updateProp('theta', this.value)"></div>`;
-                } else if(g) {
-                    html += `<div class="prop-group"><label>Tensão V Especif. (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
+                } else if (!g || g.modo === 'PQ') {
+                    html += `<div class="prop-group"><label>Chute Inicial V (pu)</label><input type="number" step="0.01" value="${item.v}" onchange="updateProp('v', this.value)"></div>`;
+                    html += `<div class="prop-group"><label>Chute Inicial θ (°)</label><input type="number" step="1" value="${item.theta}" onchange="updateProp('theta', this.value)"></div>`;
                 }
                 
                 if(g) {
                     html += `<h5 style="margin:10px 0 5px 0; color:#d32f2f; border-bottom: 1px solid #ddd;">⚙️ Gerador</h5>`;
-                    html += `<div class="prop-group"><label>Potência ${strP}</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
+                    
+                    html += `<div class="prop-group"><label>Modo de Operação</label>
+                             <select onchange="updateComponent('gerador', 'modo', this.value)">
+                                <option value="PV" ${g.modo==='PV'?'selected':''}>Barra PV (Controla V)</option>
+                                <option value="PQ" ${g.modo==='PQ'?'selected':''}>Barra PQ (Geração Fixa)</option>
+                             </select></div>`;
+                    
+                    if(g.modo === 'PV') {
+                        html += `<div class="prop-group"><label>Tensão V Fixa (pu)</label><input type="number" step="0.01" value="${g.v}" onchange="updateComponent('gerador', 'v', this.value)"></div>`;
+                    }
+                    
+                    html += `<div class="prop-group"><label>Potência Geração ${strP}</label><input type="number" step="0.1" value="${g.p}" onchange="updateComponent('gerador', 'p', this.value)"></div>`;
+                    
+                    // O CAMPO Q AGORA APARECE SEMPRE PARA O ALUNO PODER COPIAR A TABELA DO LIVRO
+                    html += `<div class="prop-group"><label>Potência Geração ${strQ}</label><input type="number" step="0.1" value="${g.q}" onchange="updateComponent('gerador', 'q', this.value)"></div>`;
+                    if(g.modo === 'PV') {
+                        html += `<p style="font-size:10px; color:#d32f2f; margin-top:-5px;">(Em modo PV, este Q é ignorado pelo algoritmo, pois o NR vai calcular o Q necessário para manter a Tensão Fixa)</p>`;
+                    }
                 }
                 if(c) {
                     html += `<h5 style="margin:10px 0 5px 0; color:#1976d2; border-bottom: 1px solid #ddd;">🔋 Carga</h5>`;
@@ -322,10 +331,8 @@ html_canvas = """
                 }
                 
                 html += `<hr style="margin: 10px 0;"><div class="prop-group"><label>Shunt na Barra (pu)</label><input type="number" step="0.01" value="${item.bsh_bus}" onchange="updateProp('bsh_bus', this.value)"></div>`;
-                html += `<p style="font-size:11px; color:#666; margin-top:-5px;">(+) Capacitor / (-) Indutor</p>`;
             } else if (type === 'linha') {
                 item.elPath.classList.add("selected"); document.getElementById("panel-title").innerText = `Linha (B${item.b1} ↔ B${item.b2})`;
-                html += `<p style="font-size:11px; color:#666; margin-top:-5px;">(Impedâncias sempre em p.u.)</p>`;
                 html += `<div class="prop-group"><label>Resistência r (pu)</label><input type="number" step="0.01" value="${item.r}" onchange="updateProp('r', this.value)"></div>`;
                 html += `<div class="prop-group"><label>Reatância x (pu)</label><input type="number" step="0.01" value="${item.x}" onchange="updateProp('x', this.value)"></div>`;
                 html += `<div class="prop-group"><label>Susceptância bsh (pu)</label><input type="number" step="0.01" value="${item.bsh}" onchange="updateProp('bsh', this.value)"></div>`;
@@ -334,7 +341,16 @@ html_canvas = """
         }
 
         function updateProp(key, value) { selectedElement[key] = parseFloat(value); if(selectedType === 'barra') renderBarra(selectedElement); if(selectedType === 'linha') updateAllWires(); }
-        function updateComponent(compType, key, value) { if(compType === 'gerador') { geradores.find(x => x.barraId === selectedElement.id)[key] = parseFloat(value); } else { cargas.find(x => x.barraId === selectedElement.id)[key] = parseFloat(value); } renderBarra(selectedElement); }
+        function updateComponent(compType, key, value) { 
+            if(compType === 'gerador') { 
+                let g = geradores.find(x => x.barraId === selectedElement.id);
+                if(key === 'modo') g.modo = value; else g[key] = parseFloat(value); 
+            } else { 
+                cargas.find(x => x.barraId === selectedElement.id)[key] = parseFloat(value); 
+            } 
+            renderBarra(selectedElement); 
+            selectElement(selectedElement, 'barra'); 
+        }
         
         function deleteSelected() {
             if(!selectedElement) return;
@@ -360,15 +376,27 @@ html_canvas = """
                     const g = geradores.find(x => x.barraId === b.id);
                     const c = cargas.find(x => x.barraId === b.id);
                     
+                    let tipo_final = b.type;
+                    if (tipo_final !== 'slack') {
+                        if (g && g.modo === 'PV') tipo_final = 'PV';
+                        else tipo_final = 'PQ';
+                    }
+
                     let obj = { 
                         id: b.id, 
-                        tipo: b.type, 
+                        tipo: tipo_final, 
                         bsh_bus: b.bsh_bus,
                         p_raw: (g ? g.p : 0) - (c ? c.p : 0),
-                        q_raw: -(c ? c.q : 0) 
+                        // O Q líquido é calculado SEMPRE. O algoritmo decide se usa (PQ) ou descarta (PV).
+                        q_raw: (g ? g.q : 0) - (c ? c.q : 0),
+                        p_carga: (c ? c.p : 0),
+                        q_carga: (c ? c.q : 0)
                     };
                     
-                    if(b.type === 'slack') { obj.v = b.v; obj.theta = b.theta; } else if (g) { obj.v = g.v; }
+                    if(tipo_final === 'slack') { obj.v = b.v; obj.theta = b.theta; } 
+                    else if (tipo_final === 'PV') { obj.v = g.v; }
+                    else { obj.v = b.v; obj.theta = b.theta; }
+                    
                     return obj;
                 }),
                 linhas: linhas.map(l => ({ de: l.b1, para: l.b2, r: l.r, x: l.x, bsh: l.bsh }))
@@ -399,13 +427,12 @@ dados_do_canvas = componente_canvas(key="meu_canvas")
 if dados_do_canvas is not None:
     st.markdown("---")
     
-    # Extração de Unidades e Divisor
     base_mva = dados_do_canvas.get('baseMVA', 100.0)
     unidade = dados_do_canvas.get('unidade', 'pu')
     divisor = base_mva if unidade == 'MVA' else 1.0
     
-    str_p = "P (MW)" if unidade == 'MVA' else "P (pu)"
-    str_q = "Q (MVar)" if unidade == 'MVA' else "Q (pu)"
+    unid_str = "MW" if unidade == 'MVA' else "pu"
+    unid_q_str = "MVar" if unidade == 'MVA' else "pu"
 
     col_tb1, col_tb2 = st.columns(2)
     id_map = {} 
@@ -413,7 +440,7 @@ if dados_do_canvas is not None:
         id_map[b['id']] = idx + 1
         
     with col_tb1:
-        st.markdown(f"<h4 style='text-align: center;'>Dados de Barras (Base: {base_mva} MVA)</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center;'>Dados de Barras Líquidos (Base: {base_mva} MVA)</h4>", unsafe_allow_html=True)
         tb_barras = []
         for b in dados_do_canvas.get('barras', []):
             tipo = b['tipo'].upper()
@@ -424,7 +451,7 @@ if dados_do_canvas is not None:
             else: 
                 p, q, v, th = b.get('p_raw', 0.0), b.get('q_raw', 0.0), '---', '---'
                 
-            tb_barras.append({ "Barra": id_map[b['id']], str_p: p, str_q: q, "V (pu)": v, "θ (º)": th, "Bsh (pu)": b.get('bsh_bus', 0.0) })
+            tb_barras.append({ "Barra": id_map[b['id']], f"P_liq ({unid_str})": p, f"Q_liq ({unid_q_str})": q, "V (pu)": v, "θ (º)": th, "Bsh (pu)": b.get('bsh_bus', 0.0) })
         if tb_barras: st.table(pd.DataFrame(tb_barras).set_index("Barra"))
             
     with col_tb2:
@@ -440,9 +467,8 @@ if dados_do_canvas is not None:
         with st.spinner("Resolvendo Newton-Raphson..."):
             backend_buses = []
             for b in dados_do_canvas['barras']:
-                tipo_map = {'slack': 'Slack', 'pv': 'PV', 'pq': 'PQ'} # <--- DICIONÁRIO CORRIGIDO
+                tipo_map = {'slack': 'Slack', 'pv': 'PV', 'pq': 'PQ'}
                 
-                # Conversão crucial: Divide pelo divisor para garantir que o motor opere estritamente em p.u.
                 backend_buses.append({ 
                     "type": tipo_map[b['tipo'].lower()], 
                     "V": float(b.get('v', 1.0)), 
@@ -462,21 +488,38 @@ if dados_do_canvas is not None:
                 
                 st.success(f"✅ O sistema convergiu em {len(log_iteracoes)} iterações!" if log_iteracoes[-1]['convergiu'] else f"⚠️ Limite de {max_iter_input} iterações atingido sem convergência completa.")
                 
-                st.markdown("#### Tensões Finais")
-                df_v = pd.DataFrame({
-                    "Barra": [id_map[b['id']] for b in dados_do_canvas['barras']],
-                    "Módulo |V| (pu)": [f"{v:.4f}" for v in V_final],
-                    "Ângulo θ (graus)": [f"{np.degrees(th):.4f}" for th in theta_final]
-                })
-                st.dataframe(df_v, hide_index=True)
+                st.markdown("#### Resultados Finais nas Barras")
+                
+                P_calc_final = log_iteracoes[-1]['P_calc']
+                Q_calc_final = log_iteracoes[-1]['Q_calc']
+                
+                res_barras = []
+                for i, b in enumerate(dados_do_canvas['barras']):
+                    v_val = V_final[i]
+                    th_val = np.degrees(theta_final[i])
+                    tipo_b = b['tipo'].upper()
+                    
+                    p_ger = (P_calc_final[i] * divisor) + b.get('p_carga', 0.0)
+                    q_ger = (Q_calc_final[i] * divisor) + b.get('q_carga', 0.0)
+                    
+                    exibir_p = f"{p_ger:.4f}" if tipo_b in ['SLACK', 'PV', 'PQ'] else "0.0000"
+                    exibir_q = f"{q_ger:.4f}" if tipo_b in ['SLACK', 'PV', 'PQ'] else "0.0000"
+                    
+                    res_barras.append({
+                        "Barra": id_map[b['id']],
+                        "Tipo": tipo_b,
+                        "Módulo |V| (pu)": f"{v_val:.4f}",
+                        "Ângulo θ (º)": f"{th_val:.4f}",
+                        f"P Gerado ({unid_str})": exibir_p,
+                        f"Q Gerado ({unid_q_str})": exibir_q
+                    })
+                    
+                st.dataframe(pd.DataFrame(res_barras), hide_index=True)
 
                 st.markdown("---")
                 
-                # ==========================================
-                # SEÇÃO EDUCACIONAL: PASSO A PASSO
-                # ==========================================
                 st.markdown("<h2 style='text-align: center; color: #2e7d32;'>📚 Memória de Cálculo Passo a Passo</h2>", unsafe_allow_html=True)
-                st.caption(f"*(Nota: O processamento interno do Newton-Raphson opera **estritamente em p.u.** Todas as grandezas abaixo foram convertidas utilizando a base de {base_mva} MVA, conforme exigido pela literatura de SEP).*")
+                st.caption(f"*(Nota: O processamento interno opera **estritamente em p.u.**).*")
                 
                 st.markdown("### 🔹 Passo 1: Montagem da Matriz de Admitância Nodal ($Y_{bus}$)")
                 rotulos_y = [f"Barra {idx}" for idx in id_map.values()]
@@ -495,7 +538,6 @@ if dados_do_canvas is not None:
                     st.markdown("**Potências Especificadas Líquidas**")
                     st.latex(r"P^{esp} = " + formatar_vetor_latex(P_spec))
                     st.latex(r"Q^{esp} = " + formatar_vetor_latex(Q_spec))
-                    st.caption("*(Valores das barras Slack e Q das barras PV constam como 0.0, pois são variáveis dependentes).*")
 
                 st.markdown("### 🔹 Passo 3: Avaliação Inicial (Iteração $\\nu = 0$)")
                 dados_iter0 = log_iteracoes[0]
@@ -520,7 +562,6 @@ if dados_do_canvas is not None:
                     st.markdown("---")
                     
                     st.markdown("### 🔹 Passo 4: Processo Iterativo (Correções e Jacobianas)")
-                    st.markdown("Selecione a iteração abaixo para abrir o quadro de equações correspondente.")
                     
                     it_validas = [step for step in log_iteracoes if 'J' in step]
                     
